@@ -1,0 +1,160 @@
+import streamlit as st
+import pandas as pd
+from datetime import date
+from backend_fin import (
+    get_all_users, get_all_accounts, get_all_assets, get_all_asset_classes,
+    add_transaction, get_all_transactions, update_transaction, delete_transaction,
+    get_portfolio_insights
+)
+
+def app():
+    st.set_page_config(layout="wide")
+    st.title("Personal Financial Portfolio Tracker")
+
+    # --- Tabbed Navigation ---
+    tab1, tab2, tab3 = st.tabs(["Transactions", "Portfolio Insights", "Data Management"])
+
+    with tab1:
+        st.header("Transaction Management (CRUD)")
+        add_transaction_form()
+        st.markdown("---")
+        update_delete_transaction_form()
+        st.markdown("---")
+        display_transactions()
+
+    with tab2:
+        st.header("Portfolio Insights & Analytics")
+        display_insights()
+
+    with tab3:
+        st.header("Master Data")
+        display_accounts_and_assets()
+
+def add_transaction_form():
+    st.subheader("Add New Transaction")
+    users = get_all_users()
+    accounts = get_all_accounts()
+    assets = get_all_assets()
+    
+    user_names = {u[1]: u[0] for u in users}
+    account_names = {acc[1]: acc[0] for acc in accounts}
+    asset_tickers = {ast[1]: ast[0] for ast in assets}
+
+    with st.form("add_transaction_form"):
+        col1, col2 = st.columns(2)
+        with col1:
+            user_name = st.selectbox("User", list(user_names.keys()), key="add_user_select")
+            account_name = st.selectbox("Account", list(account_names.keys()), key="add_account_select")
+            asset_ticker = st.selectbox("Asset Ticker", list(asset_tickers.keys()), key="add_asset_select")
+            transaction_type = st.selectbox("Transaction Type", ['BUY', 'SELL', 'DIVIDEND'], key="add_txn_type")
+        with col2:
+            txn_date = st.date_input("Transaction Date", value=date.today(), key="add_txn_date")
+            quantity = st.number_input("Quantity", min_value=0.01, format="%.6f", key="add_quantity")
+            price_per_unit = st.number_input("Price per Unit", min_value=0.01, format="%.6f", key="add_price")
+            cost_basis = st.number_input("Cost Basis (including fees)", min_value=0.01, format="%.6f", key="add_cost_basis")
+        
+        submitted = st.form_submit_button("Add Transaction")
+        if submitted:
+            user_id = user_names.get(user_name)
+            account_id = account_names.get(account_name)
+            asset_id = asset_tickers.get(asset_ticker)
+            add_transaction(user_id, account_id, asset_id, transaction_type, txn_date, quantity, price_per_unit, cost_basis)
+            st.success("Transaction added successfully! ✅")
+
+def update_delete_transaction_form():
+    st.subheader("Update or Delete Transaction")
+    transactions = get_all_transactions()
+    if transactions:
+        df = pd.DataFrame(transactions, columns=["txn_id", "user_id", "account_id", "asset_id", "txn_type", "txn_date", "quantity", "price_per_unit", "cost_basis", "notes", "created_at"])
+        txn_ids = df["txn_id"].tolist()
+        selected_id = st.selectbox("Select Transaction ID", txn_ids, key="update_delete_select")
+
+        if selected_id:
+            selected_row = df[df["txn_id"] == selected_id].iloc[0]
+
+            with st.form("update_delete_form"):
+                col1, col2 = st.columns(2)
+                with col1:
+                    new_type = st.selectbox("New Type", ['BUY', 'SELL', 'DIVIDEND'], index=['BUY', 'SELL', 'DIVIDEND'].index(selected_row["txn_type"]), key="update_txn_type")
+                    new_quantity = st.number_input("New Quantity", min_value=0.01, value=float(selected_row["quantity"]), format="%.6f", key="update_quantity")
+                with col2:
+                    new_date = st.date_input("New Date", value=selected_row["txn_date"], key="update_txn_date")
+                    new_price = st.number_input("New Price", min_value=0.01, value=float(selected_row["price_per_unit"]), format="%.6f", key="update_price")
+                
+                col_update, col_delete = st.columns(2)
+                with col_update:
+                    update_submitted = st.form_submit_button("Update Transaction")
+                with col_delete:
+                    delete_submitted = st.form_submit_button("Delete Transaction")
+
+                if update_submitted:
+                    update_transaction(selected_id, new_type, new_date, new_quantity, new_price)
+                    st.success("Transaction updated successfully! 🔄")
+                if delete_submitted:
+                    delete_transaction(selected_id)
+                    st.success("Transaction deleted successfully! 🗑️")
+    else:
+        st.info("No transactions to display.")
+
+def display_transactions():
+    st.subheader("Transaction History")
+    transactions = get_all_transactions()
+    if transactions:
+        df = pd.DataFrame(transactions, columns=["txn_id", "user_id", "account_id", "asset_id", "txn_type", "txn_date", "quantity", "price_per_unit", "cost_basis", "notes", "created_at"])
+        
+        # Filtering by type
+        filter_type = st.selectbox("Filter by Type", ["All", "BUY", "SELL", "DIVIDEND"], key="filter_type")
+        if filter_type != "All":
+            df = df[df["txn_type"] == filter_type]
+        
+        # Sorting
+        sort_by = st.selectbox("Sort by", ["txn_date", "cost_basis"], key="sort_by")
+        sort_order = st.radio("Sort order", ["Ascending", "Descending"], key="sort_order")
+        df = df.sort_values(by=sort_by, ascending=(sort_order == "Ascending"))
+        
+        st.dataframe(df)
+    else:
+        st.info("No transactions to display.")
+
+def display_insights():
+    insights = get_portfolio_insights()
+    if insights:
+        st.subheader("Key Portfolio Metrics")
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Total Transactions", insights.get('total_transactions', 0))
+        with col2:
+            st.metric("Total Value (Buys)", f"${insights.get('total_buy_value', 0.0):,.2f}")
+        with col3:
+            st.metric("Total Value (Sells)", f"${insights.get('total_sell_value', 0.0):,.2f}")
+
+        st.subheader("Transaction Price Insights")
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("Avg Price per Unit", f"${insights.get('avg_price', 0.0):,.2f}")
+        with col2:
+            st.metric("Max Price per Unit", f"${insights.get('max_price', 0.0):,.2f}")
+        with col3:
+            st.metric("Min Price per Unit", f"${insights.get('min_price', 0.0):,.2f}")
+        with col4:
+            st.metric("Total Dividends", f"${insights.get('total_dividends', 0.0):,.2f}")
+
+def display_accounts_and_assets():
+    st.subheader("Financial Accounts")
+    accounts = get_all_accounts()
+    if accounts:
+        df_accounts = pd.DataFrame(accounts, columns=["account_id", "user_id", "provider_name", "account_name", "account_type", "created_at"])
+        st.dataframe(df_accounts)
+    else:
+        st.info("No accounts found.")
+        
+    st.subheader("Assets")
+    assets = get_all_assets()
+    if assets:
+        df_assets = pd.DataFrame(assets, columns=["asset_id", "ticker", "name", "asset_class_id", "currency", "exchange", "created_at"])
+        st.dataframe(df_assets)
+    else:
+        st.info("No assets found.")
+
+if __name__ == "__main__":
+    app()
