@@ -1,0 +1,113 @@
+CREATE TABLE users (
+    user_id         SERIAL PRIMARY KEY,
+    full_name       VARCHAR(200) NOT NULL,
+    email           VARCHAR(255) UNIQUE,
+    timezone        VARCHAR(64) DEFAULT 'UTC',
+    created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 2. Linked financial accounts (brokerage, retirement, bank)
+CREATE TABLE accounts (
+    account_id      SERIAL PRIMARY KEY,
+    user_id         INT REFERENCES users(user_id) ON DELETE CASCADE,
+    provider_name   VARCHAR(200),         -- e.g. Zerodha, HDFC, Coinbase
+    account_name    VARCHAR(200),         -- user-defined label
+    account_type    VARCHAR(50),          -- brokerage, retirement, bank, etc.
+    created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 3. Asset classes (equity, bond, crypto, etc.)
+CREATE TABLE asset_classes (
+    asset_class_id  SERIAL PRIMARY KEY,
+    class_name      VARCHAR(100) NOT NULL UNIQUE,  -- e.g. Equities, Fixed Income, Crypto
+    description     TEXT
+);
+
+-- 4. Assets (stocks, bonds, crypto)
+CREATE TABLE assets (
+    asset_id        SERIAL PRIMARY KEY,
+    ticker          VARCHAR(32) NOT NULL,        -- e.g. AAPL, BTC
+    name            VARCHAR(255),
+    asset_class_id  INT REFERENCES asset_classes(asset_class_id),
+    currency        CHAR(3) DEFAULT 'INR',       -- ISO currency
+    exchange        VARCHAR(100),
+    created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (ticker, exchange)
+);
+
+-- 5. Market data (historical & current prices)
+CREATE TABLE market_prices (
+    price_id        BIGSERIAL PRIMARY KEY,
+    asset_id        INT REFERENCES assets(asset_id) ON DELETE CASCADE,
+    price           NUMERIC(20,6) NOT NULL,
+    price_date      DATE NOT NULL,
+    created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 6. Transactions (buys, sells, dividends)
+CREATE TYPE txn_type AS ENUM ('BUY','SELL','DIVIDEND');
+
+CREATE TABLE transactions (
+    txn_id          BIGSERIAL PRIMARY KEY,
+    user_id         INT REFERENCES users(user_id) ON DELETE CASCADE,
+    account_id      INT REFERENCES accounts(account_id) ON DELETE CASCADE,
+    asset_id        INT REFERENCES assets(asset_id) ON DELETE CASCADE,
+    txn_type        txn_type NOT NULL,
+    txn_date        DATE NOT NULL,
+    quantity        NUMERIC(20,6) DEFAULT 0,     -- number of shares/units
+    price_per_unit  NUMERIC(20,6),              -- price at transaction
+    cost_basis      NUMERIC(20,6),              -- total cost including fees
+    notes           TEXT,
+    created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+INSERT INTO users (full_name, email, timezone)
+VALUES ('John Doe', 'john.doe@email.com', 'Asia/Kolkata');
+
+-- 2. Insert accounts (for the same user)
+INSERT INTO accounts (user_id, provider_name, account_name, account_type)
+VALUES 
+(1, 'Zerodha', 'Zerodha Trading Account', 'brokerage'),
+(1, 'HDFC Bank', 'Retirement Account', 'retirement');
+
+-- 3. Insert asset classes
+INSERT INTO asset_classes (class_name, description)
+VALUES
+('Equities', 'Stocks and company shares'),
+('Fixed Income', 'Bonds and fixed deposits'),
+('Crypto', 'Cryptocurrencies like BTC, ETH');
+
+-- 4. Insert assets
+INSERT INTO assets (ticker, name, asset_class_id, currency, exchange)
+VALUES
+('TCS', 'Tata Consultancy Services', 1, 'INR', 'NSE'),
+('HDFCBANK', 'HDFC Bank Ltd', 1, 'INR', 'NSE'),
+('BTC', 'Bitcoin', 3, 'USD', 'Binance');
+
+-- 5. Insert market prices (latest snapshot)
+INSERT INTO market_prices (asset_id, price, price_date)
+VALUES
+(1, 4000.50, '2025-08-20'),
+(2, 1650.00, '2025-08-20'),
+(3, 60000.00, '2025-08-20');
+
+-- 6. Insert transactions (BUY, SELL, DIVIDEND)
+-- Buy 10 shares of TCS
+INSERT INTO transactions (user_id, account_id, asset_id, txn_type, txn_date, quantity, price_per_unit, cost_basis, notes)
+VALUES (1, 1, 1, 'BUY', '2025-08-15', 10, 4000.50, 40005.00, 'Initial TCS purchase');
+
+-- Buy 20 shares of HDFC Bank
+INSERT INTO transactions (user_id, account_id, asset_id, txn_type, txn_date, quantity, price_per_unit, cost_basis, notes)
+VALUES (1, 1, 2, 'BUY', '2025-08-16', 20, 1650.00, 33000.00, 'Bought HDFC Bank shares');
+
+-- Dividend from TCS
+INSERT INTO transactions (user_id, account_id, asset_id, txn_type, txn_date, quantity, cost_basis, notes)
+VALUES (1, 1, 1, 'DIVIDEND', '2025-08-18', 0, 1500.00, 'Quarterly dividend received');
+
+-- Sell 5 shares of HDFC Bank
+INSERT INTO transactions (user_id, account_id, asset_id, txn_type, txn_date, quantity, price_per_unit, cost_basis, notes)
+VALUES (1, 1, 2, 'SELL', '2025-08-20', 5, 1700.00, 8500.00, 'Partial sale of HDFC Bank shares');
+
+-- Buy 0.5 Bitcoin
+INSERT INTO transactions (user_id, account_id, asset_id, txn_type, txn_date, quantity, price_per_unit, cost_basis, notes)
+VALUES (1, 2, 3, 'BUY', '2025-08-19', 0.5, 60000.00, 30000.00, 'Bought BTC in retirement account');
