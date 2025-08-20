@@ -1,0 +1,179 @@
+import psycopg2
+from psycopg2.extras import DictCursor
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
+# Database connection details
+DB_NAME = os.getenv("DB_NAME")
+DB_USER = os.getenv("DB_USER")
+DB_PASS = os.getenv("DB_PASS")
+DB_HOST = os.getenv("DB_HOST")
+DB_PORT = os.getenv("DB_PORT")
+
+def get_db_connection():
+    """Establishes a connection to the PostgreSQL database."""
+    try:
+        conn = psycopg2.connect(
+            dbname=DB_NAME,
+            user=DB_USER,
+            password=DB_PASS,
+            host=DB_HOST,
+            port=DB_PORT
+        )
+        return conn
+    except psycopg2.OperationalError as e:
+        print(f"Database connection error: {e}")
+        return None
+
+# --- CRUD Operations for Transactions ---
+
+def add_transaction(user_id, account_id, asset_id, txn_type, txn_date, quantity, price_per_unit, cost_basis):
+    """CREATE: Adds a new transaction."""
+    conn = get_db_connection()
+    if not conn: return
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO transactions (user_id, account_id, asset_id, txn_type, txn_date, quantity, price_per_unit, cost_basis) VALUES (%s, %s, %s, %s, %s, %s, %s, %s);",
+                (user_id, account_id, asset_id, txn_type, txn_date, quantity, price_per_unit, cost_basis)
+            )
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        print(f"Error adding transaction: {e}")
+    finally:
+        conn.close()
+
+def get_all_transactions():
+    """READ: Fetches all transactions."""
+    conn = get_db_connection()
+    if not conn: return []
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT * FROM transactions ORDER BY txn_date DESC;")
+            return cur.fetchall()
+    except Exception as e:
+        print(f"Error fetching transactions: {e}")
+        return []
+    finally:
+        conn.close()
+
+def update_transaction(txn_id, new_type, new_date, new_quantity, new_price):
+    """UPDATE: Updates an existing transaction."""
+    conn = get_db_connection()
+    if not conn: return
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE transactions SET txn_type = %s, txn_date = %s, quantity = %s, price_per_unit = %s WHERE txn_id = %s;",
+                (new_type, new_date, new_quantity, new_price, txn_id)
+            )
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        print(f"Error updating transaction: {e}")
+    finally:
+        conn.close()
+
+def delete_transaction(txn_id):
+    """DELETE: Deletes a transaction."""
+    conn = get_db_connection()
+    if not conn: return
+    try:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM transactions WHERE txn_id = %s;", (txn_id,))
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        print(f"Error deleting transaction: {e}")
+    finally:
+        conn.close()
+
+# --- Read Operations for Master Data ---
+
+def get_all_users():
+    """Reads all users for dropdowns."""
+    conn = get_db_connection()
+    if not conn: return []
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT user_id, full_name FROM users;")
+            return cur.fetchall()
+    except Exception as e:
+        print(f"Error fetching users: {e}")
+        return []
+    finally:
+        conn.close()
+
+def get_all_accounts():
+    """Reads all financial accounts for dropdowns."""
+    conn = get_db_connection()
+    if not conn: return []
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT account_id, account_name FROM accounts;")
+            return cur.fetchall()
+    except Exception as e:
+        print(f"Error fetching accounts: {e}")
+        return []
+    finally:
+        conn.close()
+
+def get_all_assets():
+    """Reads all available assets for dropdowns."""
+    conn = get_db_connection()
+    if not conn: return []
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT asset_id, ticker, name FROM assets;")
+            return cur.fetchall()
+    except Exception as e:
+        print(f"Error fetching assets: {e}")
+        return []
+    finally:
+        conn.close()
+
+def get_all_asset_classes():
+    """Reads all asset classes for dropdowns."""
+    conn = get_db_connection()
+    if not conn: return []
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT asset_class_id, class_name FROM asset_classes;")
+            return cur.fetchall()
+    except Exception as e:
+        print(f"Error fetching asset classes: {e}")
+        return []
+    finally:
+        conn.close()
+
+# --- Business Insights ---
+
+def get_portfolio_insights():
+    """
+    Fetches aggregated insights using COUNT, SUM, AVG, MIN, MAX.
+    """
+    conn = get_db_connection()
+    if not conn: return {}
+    try:
+        with conn.cursor(cursor_factory=DictCursor) as cur:
+            cur.execute("""
+                SELECT
+                    COUNT(txn_id) AS total_transactions,
+                    COALESCE(SUM(cost_basis) FILTER (WHERE txn_type = 'BUY'), 0) AS total_buy_value,
+                    COALESCE(SUM(cost_basis) FILTER (WHERE txn_type = 'SELL'), 0) AS total_sell_value,
+                    COALESCE(SUM(cost_basis) FILTER (WHERE txn_type = 'DIVIDEND'), 0) AS total_dividends,
+                    COALESCE(AVG(price_per_unit), 0) AS avg_price,
+                    COALESCE(MAX(price_per_unit), 0) AS max_price,
+                    COALESCE(MIN(price_per_unit), 0) AS min_price
+                FROM transactions;
+            """)
+            insights = cur.fetchone()
+            return insights
+    except Exception as e:
+        print(f"Error fetching insights: {e}")
+        return {}
+    finally:
+        conn.close()
